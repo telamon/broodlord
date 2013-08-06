@@ -23,6 +23,8 @@ struct fb_fix_screeninfo fi;
 static void dumpinfo(struct fb_fix_screeninfo *fi, struct fb_var_screeninfo *vi);
 static int fd;
 static void *bits;
+static int sockfd;
+static z_stream strm;
 
 static int open_framebuffer(){
     printf("Opening fb device");
@@ -49,10 +51,13 @@ static int open_framebuffer(){
     }
     return 0;
 };
-static int close_framebuffer(){
-  printf("Closing fb device");
+static int cleanup(){
+  printf("Cleaning up");
+  deflateEnd(&strm);
+  close(sockfd);
   munmap(bits,fi.smem_len);
   close(fd);
+  exit(0);
 }
 static int get_framebuffer(GGLSurface *fb){	
     fb->version = sizeof(*fb);
@@ -86,7 +91,9 @@ static void dumpinfo(struct fb_fix_screeninfo *fi, struct fb_var_screeninfo *vi)
 bool stopstream = 0;
 void sighandler(int sig){
   stopstream = 1;
+  cleanup();
 }
+
 int main(int argc, char **argv){
   signal(SIGINT, sighandler);
   // Open capture device
@@ -95,7 +102,7 @@ int main(int argc, char **argv){
     return -1;
   };
   // Open client socket
-  int sockfd, port,n;
+  int port,n;
   struct sockaddr_in serv_addr;
   struct hostent *server;
   if(argc < 1){
@@ -131,7 +138,6 @@ int main(int argc, char **argv){
   #define CHUNK 16384
   int ret,flush;
   unsigned have;
-  z_stream strm;
   unsigned char out[CHUNK];
   // Allocate deflate state
   
@@ -167,10 +173,7 @@ int main(int argc, char **argv){
     } while(flush != Z_FINISH);
     assert(ret == Z_STREAM_END);
   }
-  printf("Cleaning up");
-  deflateEnd(&strm);
-  close(sockfd);
-  close_framebuffer();
+  cleanup();
   return 0;
 }
 
