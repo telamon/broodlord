@@ -18,5 +18,6 @@ include $(CLEAR_VARS)
 
 LOCAL_MODULE    := fbstream
 LOCAL_SRC_FILES := fbstream.cc
-
+LOCAL_LDLIBS    += -lz
+#LOCAL_SHARED_LIBRARIES += -libz
 include $(BUILD_EXECUTABLE)

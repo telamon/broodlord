@@ -16,7 +16,7 @@
 #include <netdb.h>
 #include <zlib.h>
 #include <signal.h>
-
+#include <assert.h>
 static struct fb_var_screeninfo vi;
 struct fb_fix_screeninfo fi;
 
@@ -127,16 +127,48 @@ int main(int argc, char **argv){
     exit(-1);
   }
   printf("Connection estabilshed");
+  // Initialize compression stream
+  #define CHUNK 16384
+  int ret,flush;
+  unsigned have;
+  z_stream strm;
+  unsigned char out[CHUNK];
+  // Allocate deflate state
+  
+  strm.zalloc = Z_NULL;
+  strm.zfree = Z_NULL;
+  strm.opaque = Z_NULL;
+  ret = deflateInit(&strm, 2);
+  if(ret != Z_OK){
+    perror("Failed to initialize compressor");
+    exit(-1);
+  }
+
+  GGLSurface surf;
+  get_framebuffer(&surf);
   while(!stopstream){
-    GGLSurface surf;
-    get_framebuffer(&surf);
-    n = write(sockfd, bits, surf.width * surf.height * 4  );
-    if(n < 0){
-      perror("Error writing to socket");
-      stopstream=1;
-    }
+    #define FRAME_t (surf.width * surf.height * 4)
+    do{
+      strm.avail_in = FRAME_t;
+      strm.next_in = (unsigned char*)bits;
+      do{
+        strm.avail_out = CHUNK;
+        strm.next_out = out;
+        ret = deflate(&strm,flush);
+        have = CHUNK - strm.avail_out;
+        // Send data over the wire.
+        n = write(sockfd, out, have );
+        if(n < 0){
+          perror("Error writing to socket");
+          stopstream=1;
+        }
+      }while(strm.avail_out == 0);
+      assert(strm.avail_in == 0);
+    } while(flush != Z_FINISH);
+    assert(ret == Z_STREAM_END);
   }
   printf("Cleaning up");
+  deflateEnd(&strm);
   close(sockfd);
   close_framebuffer();
   return 0;
