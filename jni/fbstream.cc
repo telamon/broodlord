@@ -10,6 +10,11 @@
 #include <linux/fb.h>
 #include <linux/kd.h>
 #include "pixelflinger.h"
+#include <string.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <zlib.h>
 
 static struct fb_var_screeninfo vi;
 struct fb_fix_screeninfo fi;
@@ -83,11 +88,55 @@ void sighandler(int sig){
 }
 int main(int argc, char **argv){
   printf("...\n");
-  if(!open_framebuffer());
+  // Open capture device
+  if(open_framebuffer()<0){
+    perror("Failed to open capture device");
+    return -1;
+  };
+  // Open client socket
+  int sockfd, port,n;
+  struct sockaddr_in serv_addr;
+  struct hostent *server;
+  if(argc < 1){
+    fprintf(stderr, "usage: %s hostname port\n",argv[0]);
+    return 0;
+  }
+  port = 5566;// atoi(argv[2]);
+  sockfd = socket(AF_INET, SOCK_STREAM, 0 );
+  if(sockfd < 0){
+    perror("Error, opening socket\n");
+    exit(-1);
+  }
+  
+  server = gethostbyname("192.168.1.6");
+  if(server == NULL){
+    perror("Error, no such host\n");
+    exit(-1);
+  }
+  // Configure destination
+  bzero((char *) &serv_addr, sizeof(serv_addr));
+  serv_addr.sin_family = AF_INET;
+  bcopy((char *) server -> h_addr,
+      (char *) &serv_addr.sin_addr.s_addr,
+      server -> h_length);
+  serv_addr.sin_port = htons(port);
+  // Connect
+  if(connect(sockfd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0){
+    perror("Connection refused");
+    exit(-1);
+  }
+  printf("Connection estabilshed");
   while(!stopstream){
     GGLSurface surf;
     get_framebuffer(&surf);
+    n = write(sockfd, bits, surf.width * surf.height * 4  );
+    if(n < 0){
+      perror("Error writing to socket");
+      stopstream=1;
+    }
   }
+  printf("Cleaning up");
+  close(sockfd);
   close_framebuffer();
   return 0;
 }
