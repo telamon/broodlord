@@ -27,32 +27,32 @@ static int sockfd;
 static z_stream strm;
 
 static int open_framebuffer(){
-    printf("Opening fb device");
+    fprintf(stderr, "Opening fb device\n");
     fd = open("/dev/graphics/fb0", O_RDWR);
     if(fd < 0) {
-        perror("cannot open fb0");
+        perror("cannot open fb0\n");
         return -1;
     }
 
     if(ioctl(fd, FBIOGET_FSCREENINFO, &fi) < 0) {
-        perror("failed to get fb0 info");
+        perror("failed to get fb0 info\n");
         return -1;
     }
 
     if(ioctl(fd, FBIOGET_VSCREENINFO, &vi) < 0) {
-        perror("failed to get fb0 info");
+        perror("failed to get fb0 info\n");
         return -1;
     }
     dumpinfo(&fi, &vi);
     bits = mmap(0, fi.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if(bits == MAP_FAILED) {
-        perror("failed to mmap framebuffer");
+        perror("failed to mmap framebuffer\n");
         return -1;
     }
     return 0;
 };
 static int cleanup(){
-  printf("Cleaning up");
+  fprintf(stderr, "Cleaning up\n");
   deflateEnd(&strm);
   close(sockfd);
   munmap(bits,fi.smem_len);
@@ -98,7 +98,7 @@ int main(int argc, char **argv){
   signal(SIGINT, sighandler);
   // Open capture device
   if(open_framebuffer()<0){
-    perror("Failed to open capture device");
+    perror("Failed to open capture device\n");
     return -1;
   };
   // Open client socket
@@ -133,7 +133,7 @@ int main(int argc, char **argv){
     perror("Connection refused");
     exit(-1);
   }
-  printf("Connection estabilshed");
+  fprintf(stderr, "Connection estabilshed\n");
   // Initialize compression stream
   #define CHUNK 16384
   int ret,flush;
@@ -144,9 +144,9 @@ int main(int argc, char **argv){
   strm.zalloc = Z_NULL;
   strm.zfree = Z_NULL;
   strm.opaque = Z_NULL;
-  ret = deflateInit(&strm, 2);
+  ret = deflateInit(&strm, -1);
   if(ret != Z_OK){
-    perror("Failed to initialize compressor");
+    perror("Failed to initialize compressor\n");
     exit(-1);
   }
 
@@ -154,24 +154,34 @@ int main(int argc, char **argv){
   get_framebuffer(&surf);
   while(!stopstream){
     #define FRAME_t (surf.width * surf.height * 4)
+    #define COMPRESSION 1
+    #ifdef COMPRESSION
+    strm.avail_in = FRAME_t;
+    strm.next_in = (unsigned char*)bits;
+    flush = Z_SYNC_FLUSH;
     do{
-      strm.avail_in = FRAME_t;
-      strm.next_in = (unsigned char*)bits;
-      do{
-        strm.avail_out = CHUNK;
-        strm.next_out = out;
-        ret = deflate(&strm,flush);
-        have = CHUNK - strm.avail_out;
-        // Send data over the wire.
-        n = write(sockfd, out, have );
-        if(n < 0){
-          perror("Error writing to socket");
-          stopstream=1;
-        }
-      }while(strm.avail_out == 0);
-      assert(strm.avail_in == 0);
-    } while(flush != Z_FINISH);
+      strm.avail_out = CHUNK;
+      strm.next_out = out;
+      ret = deflate(&strm,flush);
+      have = CHUNK - strm.avail_out;
+      // Send data over the wire.
+      n = write(sockfd, out, have );
+      if(n < 0){
+        perror("Error writing to socket\n");
+        stopstream=1;
+      }
+      //fprintf(stderr, "Chunk sent\n");
+    }while(strm.avail_out == 0);
+    assert(strm.avail_in == 0);
     assert(ret == Z_STREAM_END);
+    #else
+      n = write(sockfd, bits, FRAME_t );
+      if(n < 0){
+        perror("Error writing to socket\n");
+        stopstream=1;
+      }
+    #endif
+    fprintf(stderr, "Frame sent\n");
   }
   cleanup();
   return 0;
