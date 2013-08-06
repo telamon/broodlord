@@ -15,6 +15,7 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <zlib.h>
+#include <signal.h>
 
 static struct fb_var_screeninfo vi;
 struct fb_fix_screeninfo fi;
@@ -87,7 +88,7 @@ void sighandler(int sig){
   stopstream = 1;
 }
 int main(int argc, char **argv){
-  printf("...\n");
+  signal(SIGINT, sighandler);
   // Open capture device
   if(open_framebuffer()<0){
     perror("Failed to open capture device");
