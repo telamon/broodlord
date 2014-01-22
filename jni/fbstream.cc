@@ -26,6 +26,14 @@ static void *bits;
 static int sockfd;
 static z_stream strm;
 
+struct header {
+  char magic[8];
+  int width;
+  int height;
+  unsigned char bpp;
+  unsigned char format;
+};
+
 static int open_framebuffer(){
     fprintf(stderr, "Opening fb device\n");
     fd = open("/dev/graphics/fb0", O_RDWR);
@@ -152,10 +160,32 @@ int main(int argc, char **argv){
 
   GGLSurface surf;
   get_framebuffer(&surf);
+  header head;
+  head.magic[0]='f';head.magic[1]='r';head.magic[2]='a';head.magic[3]='m';head.magic[4]='e'; 
+  head.width = surf.width;
+  head.height = surf.height;
+  head.bpp = 32;
+
   while(!stopstream){
-    #define FRAME_t (surf.width * surf.height * 4)
-    #define COMPRESSION 1
-    #ifdef COMPRESSION
+    // Send header
+    strm.avail_in = 56;
+    strm.next_in = (unsigned char*)&head;
+    do{
+      strm.avail_out = CHUNK;
+      strm.next_out = out;
+      ret = deflate(&strm,Z_SYNC_FLUSH);
+      have = CHUNK - strm.avail_out;
+      n = write(sockfd, out, have );
+      if(n < 0){
+        perror("Error writing to socket\n");
+        stopstream=1;
+      }
+    }while(strm.avail_out == 0 && stopstream >= 0);
+    fprintf(stderr, "head sent , %i\n",(int) 56);
+
+
+    // Send frame
+    #define FRAME_t ((surf.width * surf.height * 4))
     strm.avail_in = FRAME_t;
     strm.next_in = (unsigned char*)bits;
     flush = Z_SYNC_FLUSH;
@@ -171,17 +201,10 @@ int main(int argc, char **argv){
         stopstream=1;
       }
       //fprintf(stderr, "Chunk sent\n");
-    }while(strm.avail_out == 0);
+    }while(strm.avail_out == 0 && stopstream >= 0);
     assert(strm.avail_in == 0);
     assert(ret == Z_STREAM_END);
-    #else
-      n = write(sockfd, bits, FRAME_t );
-      if(n < 0){
-        perror("Error writing to socket\n");
-        stopstream=1;
-      }
-    #endif
-    fprintf(stderr, "Frame sent\n");
+    fprintf(stderr, "Frame sent, %i\n",FRAME_t);
   }
   cleanup();
   return 0;
